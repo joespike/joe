@@ -38,6 +38,14 @@ app.post("/concat", async (req, res) => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "concat-"));
     const listPath = path.join(dir, "list.txt");
     const outPath = path.join(dir, "final.mp4");
+    
+    const OUTPUTS_DIR = path.join(process.cwd(), "outputs");
+    
+fs.mkdirSync(OUTPUTS_DIR, { recursive: true });
+
+// URL로 접근 가능하게
+app.use("/outputs", express.static(OUTPUTS_DIR));
+
 
     const files = [];
     for (let i = 0; i < urls.length; i++) {
@@ -60,9 +68,22 @@ app.post("/concat", async (req, res) => {
       ]);
     }
 
-    res.setHeader("Content-Type", "video/mp4");
-    res.setHeader("Content-Disposition", 'attachment; filename="final.mp4"');
-    fs.createReadStream(outPath).pipe(res);
+   // res.setHeader("Content-Type", "video/mp4");
+   // res.setHeader("Content-Disposition", 'attachment; filename="final.mp4"');
+   // fs.createReadStream(outPath).pipe(res);
+        // 최종 파일을 /outputs 로 복사 (서빙 가능)
+    const fileName = `final_${Date.now()}_${Math.random().toString(36).slice(2)}.mp4`;
+    const publicPath = path.join(OUTPUTS_DIR, fileName);
+    fs.copyFileSync(outPath, publicPath);
+
+    // URL 반환
+    const base = process.env.PUBLIC_BASE_URL || `http://localhost:${PORT}`;
+    return res.json({
+      success: true,
+      url: `${base}/outputs/${fileName}`,
+      fileName
+    });
+
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -70,3 +91,5 @@ app.post("/concat", async (req, res) => {
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log("concat server on :" + PORT));
+    // tmp 정리(선택)
+    try { fs.rmSync(dir, { recursive: true, force: true }); } catch {}
