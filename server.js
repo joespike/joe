@@ -9,6 +9,12 @@ const app = express();
 app.use(express.json({ limit: "2mb" }));
 
 const FFMPEG = "ffmpeg";
+const PORT = process.env.PORT || 3000;
+
+// ✅ outputs 폴더 전역 생성 + 정적 서빙 (여기서 1번만)
+const OUTPUTS_DIR = path.join(process.cwd(), "outputs");
+fs.mkdirSync(OUTPUTS_DIR, { recursive: true });
+app.use("/outputs", express.static(OUTPUTS_DIR));
 
 async function download(url, outPath) {
   const res = await fetch(url);
@@ -29,23 +35,16 @@ function runFFmpeg(args) {
 app.get("/health", (_, res) => res.send("ok"));
 
 app.post("/concat", async (req, res) => {
+  let dir = null;
   try {
     const { urls } = req.body;
     if (!Array.isArray(urls) || urls.length === 0) {
       return res.status(400).json({ error: "urls must be a non-empty array" });
     }
 
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "concat-"));
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), "concat-"));
     const listPath = path.join(dir, "list.txt");
     const outPath = path.join(dir, "final.mp4");
-    
-    const OUTPUTS_DIR = path.join(process.cwd(), "outputs");
-    
-fs.mkdirSync(OUTPUTS_DIR, { recursive: true });
-
-// URL로 접근 가능하게
-app.use("/outputs", express.static(OUTPUTS_DIR));
-
 
     const files = [];
     for (let i = 0; i < urls.length; i++) {
@@ -68,16 +67,14 @@ app.use("/outputs", express.static(OUTPUTS_DIR));
       ]);
     }
 
-   // res.setHeader("Content-Type", "video/mp4");
-   // res.setHeader("Content-Disposition", 'attachment; filename="final.mp4"');
-   // fs.createReadStream(outPath).pipe(res);
-        // 최종 파일을 /outputs 로 복사 (서빙 가능)
+    // ✅ outputs로 복사
     const fileName = `final_${Date.now()}_${Math.random().toString(36).slice(2)}.mp4`;
     const publicPath = path.join(OUTPUTS_DIR, fileName);
     fs.copyFileSync(outPath, publicPath);
 
-    // URL 반환
-    const base = process.env.PUBLIC_BASE_URL || `http://localhost:${PORT}`;
+    // ✅ URL 만들기 (Render에서는 PUBLIC_BASE_URL 넣어둔 값 사용)
+    const base = process.env.PUBLIC_BASE_URL || `${req.protocol}://${req.get("host")}`;
+
     return res.json({
       success: true,
       url: `${base}/outputs/${fileName}`,
@@ -85,11 +82,13 @@ app.use("/outputs", express.static(OUTPUTS_DIR));
     });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return res.status(500).json({ error: err.message });
+  } finally {
+    // ✅ tmp 정리 (return 해도 finally는 실행됨)
+    if (dir) {
+      try { fs.rmSync(dir, { recursive: true, force: true }); } catch {}
+    }
   }
 });
 
-const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log("concat server on :" + PORT));
-    // tmp 정리(선택)
-    try { fs.rmSync(dir, { recursive: true, force: true }); } catch {}
